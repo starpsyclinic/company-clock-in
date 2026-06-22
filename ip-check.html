@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP 診斷工具</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 30px 20px; background-color: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin: 0 auto; max-width: 400px; }
+        .success { color: #2ecc71; font-weight: bold; font-size: 1.1em; }
+        .error { color: #e74c3c; font-weight: bold; font-size: 1.1em; }
+        .ip-display { font-size: 1.3em; margin: 15px 0; padding: 15px; background: #e8f4f8; border-radius: 8px; word-wrap: break-word; font-family: monospace; }
+        .target-ip { font-size: 1.1em; color: #555; }
+    </style>
+</head>
+<body>
+    <h2>Wi-Fi 連線診斷工具</h2>
+    <div class="card">
+        <p class="target-ip"><strong>系統設定的目標 IP：</strong><br>36.226.189.18</p>
+        
+        <p><strong>LINE 瀏覽器實際抓到的 IP：</strong></p>
+        <div class="ip-display" id="current-ip">連線抓取中...</div>
+        
+        <div id="match-result">正在比對中...</div>
+    </div>
+
+    <script>
+        async function checkIP() {
+            try {
+                // 透過外部 API 抓取目前的對外 IP
+                let response = await fetch('https://api.ipify.org?format=json');
+                let data = await response.json();
+                let currentIP = data.ip;
+
+                document.getElementById('current-ip').innerText = currentIP;
+
+                // 進行比對
+                if (currentIP === "36.226.189.18") {
+                    document.getElementById('match-result').innerHTML = '<p class="success">✅ 比對成功！<br>目前使用的是正確的 Wi-Fi 網路。</p>';
+                } else {
+                    document.getElementById('match-result').innerHTML = '<p class="error">❌ 比對失敗！<br>系統抓到的 IP 與設定不符。</p><p style="font-size:0.9em; color:#666;">可能原因：<br>1. 手機未連上正確 Wi-Fi<br>2. 系統優先使用了手機的 4G/5G 網路<br>3. 抓到了 IPv6 格式</p>';
+                }
+            } catch (error) {
+                document.getElementById('current-ip').innerText = "無法獲取 IP";
+                document.getElementById('match-result').innerHTML = '<p class="error">⚠️ 網路連線錯誤，請確認網路狀態。</p>';
+            }
+        }
+
+        window.onload = checkIP;
+    </script>
+</body>
+</html>
