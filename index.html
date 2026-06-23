@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公司行動打卡系統</title>
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px 20px; background-color: #f4f7f6; }
+        .btn { display: inline-block; width: 80%; max-width: 300px; padding: 15px; margin: 15px 0; font-size: 18px; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        .btn-in { background-color: #2ecc71; }
+        .btn-out { background-color: #e74c3c; }
+        #message { margin-top: 20px; font-size: 16px; font-weight: bold; color: #333; }
+    </style>
+</head>
+<body>
+
+    <h2>歡迎使用公司打卡系統</h2>
+    <p id="user-display">正在載入員工資訊...</p>
+    
+    <button class="btn btn-in" onclick="processClockIn('上班')">上班打卡</button>
+    <button class="btn btn-out" onclick="processClockIn('下班')">下班打卡</button>
+    
+    <div id="message"></div>
+
+    <script>
+        var userLineId = "";
+        var userLineName = "";
+        var userCurrentIp = "";
+        
+        // 【⚠️重要修改】請將下方網址替換為您專屬的 Google Apps Script 網頁應用程式 URL (結尾為 /exec)
+        var GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxWWjONT1jtIHggU5N3fmK6rwSXLFBiFBwTIiGeZNYlzN-Qs0SnP2BGsWfUVxX89Bpesg/exec"; 
+
+// 初始化 LIFF (加上錯誤偵測雷達)
+        async function initLiff() {
+            try {
+                // 請確認下方為您在 LINE 後台最新的 LIFF ID
+                await liff.init({ liffId: "2010274675-q3hhlrwa" }); 
+                if (liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    userLineId = profile.userId;
+                    userLineName = profile.displayName;
+                    document.getElementById("user-display").innerText = "你好，" + userLineName;
+                } else {
+                    liff.login();
+                }
+            } catch (error) {
+                // 👇 這行是關鍵！它會強制把 LINE 後台的錯誤訊息彈出來給我們看
+                alert("抓到錯誤了！\n代碼: " + error.code + "\n訊息: " + error.message);
+                
+                console.error("LIFF 初始化失敗", error);
+                document.getElementById("user-display").innerText = "LINE 身分驗證失敗，請重新開啟網頁。";
+            }
+        }
+
+        // 取得員工目前的外網 IP（優化雙來源版）
+        async function getPublicIp() {
+            try {
+                let response = await fetch('https://ipinfo.io/json');
+                let data = await response.json();
+                userCurrentIp = data.ip;
+            } catch (error) {
+                try {
+                    let response = await fetch('https://api.ipify.org?format=json');
+                    let data = await response.json();
+                    userCurrentIp = data.ip;
+                } catch (e) {
+                    document.getElementById("message").innerText = "無法取得當前IP，請確認網路連線。";
+                }
+            }
+        }
+
+        // 處理打卡動作
+        async function processClockIn(type) {
+            if (!userLineId || !userCurrentIp) {
+                alert("資料載入中，請稍候再試\n（請確認是否已看到您的 LINE 名字與網路連線）");
+                return;
+            }
+            
+            document.getElementById("message").innerText = "打卡資料傳送中...";
+            
+            try {
+                let response = await fetch(GAS_WEB_APP_URL, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId: userLineId,
+                        userName: userLineName,
+                        type: type,
+                        ip: userCurrentIp
+                    })
+                });
+                let result = await response.json();
+                
+                if (result.status === "打卡成功") {
+                    document.getElementById("message").innerHTML = `<span style="color:green;">響應：${result.status}<br>時間：${result.time}</span>`;
+                    setTimeout(() => { liff.closeWindow(); }, 2000); 
+                } else {
+                    document.getElementById("message").innerHTML = `<span style="color:red;">錯誤：${result.status}</span>`;
+                }
+            } catch (error) {
+                document.getElementById("message").innerText = "打卡連線失敗，請聯繫系統管理員。";
+            }
+        }
+
+window.onload = async function() {
+            // 1. 測試雷達：確認 JavaScript 有成功運作，沒有因為剛才刪除語法而壞掉
+            alert("網頁已啟動！準備呼叫 LINE...");
+            
+            // 2. 對調順序：先讓 LINE 身分驗證立刻執行，把你的名字抓出來
+            await initLiff();
+            
+            // 3. 等名字出來後，再去背景抓取 IP (這樣就算網路卡住，也不會擋住你的名字顯示)
+            await getPublicIp();
+        }
+    </script>
+</body>
+</html>
