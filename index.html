@@ -3,14 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>公司行動打卡系統</title>
+    <title>公司行動打卡系統</title>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding: 50px 20px; background-color: #f4f7f6; }
         .btn { display: inline-block; width: 80%; max-width: 300px; padding: 15px; margin: 15px 0; font-size: 18px; color: white; border: none; border-radius: 8px; cursor: pointer; }
         .btn-in { background-color: #2ecc71; }
         .btn-out { background-color: #e74c3c; }
+        .btn:disabled { background-color: #aaa; cursor: not-allowed; }
         #message { margin-top: 20px; font-size: 16px; font-weight: bold; color: #333; }
+        #gps-status { margin-top: 10px; font-size: 13px; color: #888; }
     </style>
 </head>
 <body>
@@ -18,24 +20,24 @@
     <h2>歡迎使用公司打卡系統</h2>
     <p id="user-display">正在載入員工資訊...</p>
     
-    <button class="btn btn-in" onclick="processClockIn('上班')">上班打卡</button>
-    <button class="btn btn-out" onclick="processClockIn('下班')">下班打卡</button>
+    <button class="btn btn-in" id="btn-in" onclick="processClockIn('上班')" disabled>上班打卡</button>
+    <button class="btn btn-out" id="btn-out" onclick="processClockIn('下班')" disabled>下班打卡</button>
     
+    <p id="gps-status">正在取得 GPS 位置...</p>
     <div id="message"></div>
 
     <script>
         var userLineId = "";
         var userLineName = "";
-        var userCurrentIp = "";
-        
-        // 【⚠️重要修改】請將下方網址替換為您專屬的 Google Apps Script 網頁應用程式 URL (結尾為 /exec)
-        var GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxWWjONT1jtIHggU5N3fmK6rwSXLFBiFBwTIiGeZNYlzN-Qs0SnP2BGsWfUVxX89Bpesg/exec"; 
+        var userLat = null;
+        var userLng = null;
 
-// 初始化 LIFF (加上錯誤偵測雷達)
+        // 後端 GAS 網址（不變）
+        var GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxWWjONT1jtIHggU5N3fmK6rwSXLFBiFBwTIiGeZNYlzN-Qs0SnP2BGsWfUVxX89Bpesg/exec";
+
         async function initLiff() {
             try {
-                // 請確認下方為您在 LINE 後台最新的 LIFF ID
-                await liff.init({ liffId: "2010274675-q3hhlrwa" }); 
+                await liff.init({ liffId: "2010274675-q3hhlrwa" });
                 if (liff.isLoggedIn()) {
                     const profile = await liff.getProfile();
                     userLineId = profile.userId;
@@ -45,40 +47,57 @@
                     liff.login();
                 }
             } catch (error) {
-                // 👇 這行是關鍵！它會強制把 LINE 後台的錯誤訊息彈出來給我們看
-                alert("抓到錯誤了！\n代碼: " + error.code + "\n訊息: " + error.message);
-                
-                console.error("LIFF 初始化失敗", error);
                 document.getElementById("user-display").innerText = "LINE 身分驗證失敗，請重新開啟網頁。";
             }
         }
 
-        // 取得員工目前的外網 IP（優化雙來源版）
-        async function getPublicIp() {
-            try {
-                let response = await fetch('https://ipinfo.io/json');
-                let data = await response.json();
-                userCurrentIp = data.ip;
-            } catch (error) {
-                try {
-                    let response = await fetch('https://api.ipify.org?format=json');
-                    let data = await response.json();
-                    userCurrentIp = data.ip;
-                } catch (e) {
-                    document.getElementById("message").innerText = "無法取得當前IP，請確認網路連線。";
+        function getGpsLocation() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error("此裝置不支援 GPS 定位"));
+                    return;
                 }
-            }
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        userLat = position.coords.latitude;
+                        userLng = position.coords.longitude;
+                        document.getElementById("gps-status").innerText = "✓ 位置已取得，可以打卡";
+                        document.getElementById("btn-in").disabled = false;
+                        document.getElementById("btn-out").disabled = false;
+                        resolve();
+                    },
+                    (error) => {
+                        let code = error.code;
+                        let msg = "";
+                        if (code === 1) {
+                            msg = "❌ 錯誤碼 1：位置權限被拒絕\n請到瀏覽器／系統設定允許此網頁存取位置，再重新整理。";
+                        } else if (code === 2) {
+                            msg = "❌ 錯誤碼 2：無法取得位置（裝置定位失敗）\n請確認手機 GPS 已開啟，或移動到室外後重試。";
+                        } else if (code === 3) {
+                            msg = "❌ 錯誤碼 3：定位請求逾時\n請稍後重新整理頁面再試。";
+                        } else {
+                            msg = "❌ 錯誤碼 " + code + "：未知錯誤（" + error.message + "）";
+                        }
+                        document.getElementById("gps-status").innerText = msg;
+                        document.getElementById("gps-status").style.color = "#e74c3c";
+                        document.getElementById("gps-status").style.whiteSpace = "pre-line";
+                        reject(new Error(msg));
+                    },
+                    { timeout: 15000, maximumAge: 0, enableHighAccuracy: true }
+                );
+            });
         }
 
-        // 處理打卡動作
         async function processClockIn(type) {
-            if (!userLineId || !userCurrentIp) {
-                alert("資料載入中，請稍候再試\n（請確認是否已看到您的 LINE 名字與網路連線）");
+            if (!userLineId || userLat === null || userLng === null) {
+                alert("資料尚未就緒，請確認已允許位置存取並看到您的 LINE 名字");
                 return;
             }
-            
+
             document.getElementById("message").innerText = "打卡資料傳送中...";
-            
+            document.getElementById("btn-in").disabled = true;
+            document.getElementById("btn-out").disabled = true;
+
             try {
                 let response = await fetch(GAS_WEB_APP_URL, {
                     method: 'POST',
@@ -86,31 +105,36 @@
                         userId: userLineId,
                         userName: userLineName,
                         type: type,
-                        ip: userCurrentIp
+                        lat: userLat,
+                        lng: userLng
                     })
                 });
                 let result = await response.json();
-                
+
                 if (result.status === "打卡成功") {
-                    document.getElementById("message").innerHTML = `<span style="color:green;">響應：${result.status}<br>時間：${result.time}</span>`;
-                    setTimeout(() => { liff.closeWindow(); }, 2000); 
+                    document.getElementById("message").innerHTML =
+                        `<span style="color:green;">✓ ${result.status}<br>時間：${result.time}<br>距診所：${result.distance} 公尺</span>`;
+                    setTimeout(() => { liff.closeWindow(); }, 2500);
                 } else {
-                    document.getElementById("message").innerHTML = `<span style="color:red;">錯誤：${result.status}</span>`;
+                    document.getElementById("message").innerHTML =
+                        `<span style="color:red;">✗ ${result.status}</span>`;
+                    document.getElementById("btn-in").disabled = false;
+                    document.getElementById("btn-out").disabled = false;
                 }
             } catch (error) {
                 document.getElementById("message").innerText = "打卡連線失敗，請聯繫系統管理員。";
+                document.getElementById("btn-in").disabled = false;
+                document.getElementById("btn-out").disabled = false;
             }
         }
 
-window.onload = async function() {
-            // 1. 測試雷達：確認 JavaScript 有成功運作，沒有因為剛才刪除語法而壞掉
-            alert("網頁已啟動！準備呼叫 LINE...");
-            
-            // 2. 對調順序：先讓 LINE 身分驗證立刻執行，把你的名字抓出來
+        window.onload = async function() {
             await initLiff();
-            
-            // 3. 等名字出來後，再去背景抓取 IP (這樣就算網路卡住，也不會擋住你的名字顯示)
-            await getPublicIp();
+            try {
+                await getGpsLocation();
+            } catch(e) {
+                // 錯誤訊息已在 getGpsLocation 內顯示
+            }
         }
     </script>
 </body>
